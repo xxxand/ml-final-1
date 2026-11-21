@@ -32,16 +32,19 @@ TEST_SIZE = 0.2
 MAX_BIN = 10
 CLIP = 3
 LEVELS = 2 * CLIP + 1
-KERNELS = tuple(np.array(k, dtype=np.int16) for k in (
-    [[1, -1]],
-    [[1], [-1]],
-    [[1, 2, 1], [0, 0, 0], [-1, -2, -1]],
-    [[1, 0, -1], [2, 0, -2], [1, 0, -1]],
-    [[2, 1, 0], [1, 0, -1], [0, -1, -2]],
-    [[0, 1, 2], [-1, 0, 1], [-2, -1, 0]],
-    [[0, -1, 0], [-1, 4, -1], [0, -1, 0]],
-    [[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]],
-))
+KERNELS = tuple(
+    np.array(k, dtype=np.int16)
+    for k in (
+        [[1, -1]],
+        [[1], [-1]],
+        [[1, 2, 1], [0, 0, 0], [-1, -2, -1]],
+        [[1, 0, -1], [2, 0, -2], [1, 0, -1]],
+        [[2, 1, 0], [1, 0, -1], [0, -1, -2]],
+        [[0, 1, 2], [-1, 0, 1], [-2, -1, 0]],
+        [[0, -1, 0], [-1, 4, -1], [0, -1, 0]],
+        [[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]],
+    )
+)
 HIST_DIM = len(KERNELS) * (MAX_BIN + 1)
 FEATURE_DIM = HIST_DIM + 4 * ((LEVELS**2 + 1) // 2)
 FEATURE_SETS = {"H": HIST_DIM, "H+Cooc": FEATURE_DIM}
@@ -54,7 +57,9 @@ def list_pairs(data_dir):
         for label in ("Cover", "Stego")
     )
     if not cover or cover.keys() != stego.keys():
-        raise ValueError("Cover/ and Stego/ must contain matching sets of PGM filenames")
+        raise ValueError(
+            "Cover/ and Stego/ must contain matching sets of PGM filenames"
+        )
     return [(cover[name], stego[name]) for name in sorted(cover)]
 
 
@@ -69,7 +74,7 @@ def valid_residual(image, kernel):
 def residual_histogram(residual):
     # |r|=j 同时统计正负两种符号；将非零 bin 减半以得到符号均值。
     counts = np.bincount(np.abs(residual).ravel(), minlength=MAX_BIN + 1)
-    hist = counts[:MAX_BIN + 1] / residual.size
+    hist = counts[: MAX_BIN + 1] / residual.size
     hist[1:] *= 0.5
     return hist
 
@@ -81,7 +86,7 @@ def cooccurrences(residual, axis):
     counts = np.bincount(code, minlength=LEVELS**2)
     center = LEVELS**2 // 2
     counts[:center] += counts[:center:-1]
-    return counts[:center + 1] / code.size
+    return counts[: center + 1] / code.size
 
 
 def image_features(image):
@@ -89,10 +94,12 @@ def image_features(image):
     if image.ndim != 2 or min(image.shape) < 3:
         raise ValueError("Expected a grayscale image of at least 3 × 3 pixels")
     residuals = [valid_residual(image, kernel) for kernel in KERNELS]
-    return np.concatenate([
-        *(residual_histogram(r) for r in residuals),
-        *(cooccurrences(r, axis) for r in residuals[:2] for axis in (0, 1)),
-    ])
+    return np.concatenate(
+        [
+            *(residual_histogram(r) for r in residuals),
+            *(cooccurrences(r, axis) for r in residuals[:2] for axis in (0, 1)),
+        ]
+    )
 
 
 def pair_features(pair):
@@ -126,7 +133,7 @@ def fisher_scores(x_train, y_train, x_test):
     covariance = centered.T @ centered / (len(y_train) - 2)
     # 按平均方差缩放岭项，并为常量特征保留一个很小的下限。
     ridge = max(0.01 * np.trace(covariance) / len(covariance), 1e-8)
-    covariance.flat[::len(covariance) + 1] += ridge
+    covariance.flat[:: len(covariance) + 1] += ridge
     weights = np.linalg.solve(covariance, means[1] - means[0])
     return (x_test - means.mean(axis=0)) @ weights
 
@@ -144,25 +151,36 @@ def evaluate(features, train, test):
             if name == "FLD":
                 scores = fisher_scores(x_train, y_train, x_test)
             else:
-                model = (LogisticRegression(max_iter=2000) if name == "LR"
-                         else SVC(C=4, gamma="scale", cache_size=512))
+                model = (
+                    LogisticRegression(max_iter=2000)
+                    if name == "LR"
+                    else SVC(C=4, gamma="scale", cache_size=512)
+                )
                 scores = model.fit(x_train, y_train).decision_function(x_test)
             predicted = (scores > 0).astype(int)
             precision, recall, f1, _ = precision_recall_fscore_support(
                 y_test, predicted, average="binary", zero_division=0
             )
             result = {
-                "features": feature_set, "dimensions": n, "model": name,
+                "features": feature_set,
+                "dimensions": n,
+                "model": name,
                 "acc": accuracy_score(y_test, predicted),
                 "auc": roc_auc_score(y_test, scores),
-                "precision": precision, "recall": recall, "f1": f1,
-                "confusion_matrix": confusion_matrix(y_test, predicted, labels=[0, 1]).tolist(),
+                "precision": precision,
+                "recall": recall,
+                "f1": f1,
+                "confusion_matrix": confusion_matrix(
+                    y_test, predicted, labels=[0, 1]
+                ).tolist(),
             }
             records.append(result)
             fpr, tpr, _ = roc_curve(y_test, scores)
             curves.append((fpr, tpr))
-            print(f"{feature_set:6} {name:7} ACC={result['acc']:.4f}  AUC={result['auc']:.4f}",
-                  flush=True)
+            print(
+                f"{feature_set:6} {name:7} ACC={result['acc']:.4f}  AUC={result['auc']:.4f}",
+                flush=True,
+            )
     return records, curves
 
 
@@ -173,21 +191,42 @@ def save_plots(records, curves, output):
         subset = [r for r in records if r["features"] == feature_set]
         for k, metric in enumerate(("acc", "auc")):
             offset = (2 * j + k - 1.5) * 0.19
-            bar.bar(np.arange(len(MODELS)) + offset, [r[metric] for r in subset], 0.18,
-                    label=f"{feature_set} {metric.upper()}",
-                    color=("#4D90A4", "#C27635")[j], hatch=("", "//")[k],
-                    edgecolor="#333333", linewidth=0.4)
+            bar.bar(
+                np.arange(len(MODELS)) + offset,
+                [r[metric] for r in subset],
+                0.18,
+                label=f"{feature_set} {metric.upper()}",
+                color=("#4D90A4", "#C27635")[j],
+                hatch=("", "//")[k],
+                edgecolor="#333333",
+                linewidth=0.4,
+            )
     bar.axhline(0.5, color="#666666", linestyle=":", linewidth=1)
-    bar.set(xticks=np.arange(len(MODELS)), xticklabels=MODELS,
-            ylim=(0, 1.02), ylabel="Score", title="Test ACC and ROC-AUC")
+    bar.set(
+        xticks=np.arange(len(MODELS)),
+        xticklabels=MODELS,
+        ylim=(0, 1.02),
+        ylabel="Score",
+        title="Test ACC and ROC-AUC",
+    )
     bar.legend(fontsize=8, loc="lower center", ncol=2)
     roc.plot([0, 1], [0, 1], ":", color="#777777")
     for result, (fpr, tpr) in zip(records, curves):
         name, fs = result["model"], result["features"]
-        roc.plot(fpr, tpr, color=colors[MODELS.index(name)], linestyle="--" if fs == "H" else "-",
-                 label=f"{name}, {fs} ({result['auc']:.3f})")
-    roc.set(xlim=(0, 1), ylim=(0, 1.02), xlabel="False positive rate",
-            ylabel="True positive rate", title="ROC curves (Stego positive)")
+        roc.plot(
+            fpr,
+            tpr,
+            color=colors[MODELS.index(name)],
+            linestyle="--" if fs == "H" else "-",
+            label=f"{name}, {fs} ({result['auc']:.3f})",
+        )
+    roc.set(
+        xlim=(0, 1),
+        ylim=(0, 1.02),
+        xlabel="False positive rate",
+        ylabel="True positive rate",
+        title="ROC curves (Stego positive)",
+    )
     roc.legend(fontsize=8, loc="lower right")
     fig.savefig(output / "comparison.png", dpi=160)
     plt.close(fig)
@@ -197,7 +236,10 @@ def save_plots(records, curves, output):
     for ax, result in zip(axes, subset):
         matrix = np.asarray(result["confusion_matrix"])
         ConfusionMatrixDisplay(matrix, display_labels=["Cover", "Stego"]).plot(
-            ax=ax, cmap="Blues", colorbar=False, values_format="d",
+            ax=ax,
+            cmap="Blues",
+            colorbar=False,
+            values_format="d",
             im_kw={"vmin": 0, "vmax": matrix[0].sum()},
         )
         ax.set_title(result["model"])
@@ -211,7 +253,9 @@ def main():
     parser.add_argument("--data-dir", type=Path, default=ROOT / "datasets")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "results")
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--limit-pairs", type=int, help="use a deterministic subset for a smoke test")
+    parser.add_argument(
+        "--limit-pairs", type=int, help="use a deterministic subset for a smoke test"
+    )
     args = parser.parse_args()
     if args.workers < 1:
         parser.error("--workers must be positive")
@@ -220,7 +264,9 @@ def main():
     if args.limit_pairs is not None:
         if not 3 <= args.limit_pairs <= len(pairs):
             parser.error("--limit-pairs must be between 3 and the available pair count")
-        selection = np.random.default_rng(SEED).choice(len(pairs), args.limit_pairs, replace=False)
+        selection = np.random.default_rng(SEED).choice(
+            len(pairs), args.limit_pairs, replace=False
+        )
         pairs = [pairs[i] for i in sorted(selection)]
     if len(pairs) < 3:
         parser.error("at least three pairs are required")
@@ -231,8 +277,12 @@ def main():
         records, curves = evaluate(features, train, test)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     metrics = {
-        "seed": SEED, "pairs": len(pairs), "train_pairs": len(train), "test_pairs": len(test),
-        "test_filenames": [pairs[i][0].name for i in test], "results": records,
+        "seed": SEED,
+        "pairs": len(pairs),
+        "train_pairs": len(train),
+        "test_pairs": len(test),
+        "test_filenames": [pairs[i][0].name for i in test],
+        "results": records,
     }
     (args.output_dir / "metrics.json").write_text(
         json.dumps(metrics, indent=2) + "\n", encoding="utf-8"
